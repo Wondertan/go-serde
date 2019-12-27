@@ -2,66 +2,122 @@ package serde
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
-
-	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/libp2p/go-msgio"
 )
 
-type msg interface {
-	Unmarshal([]byte) error
-	MarshalTo([]byte) (int, error)
+type Message interface {
 	Size() int
+	MarshalTo([]byte) (int, error)
+	Unmarshal([]byte) error
 }
 
-func WriteMessage(w io.Writer, msg msg) error {
-	size := msg.Size()
-	buf := pool.Get(size + binary.MaxVarintLen64)
-	defer pool.Put(buf)
-
-	n, err := MarshalMessage(msg, buf)
+func Marshal(msg Message, buf []byte) (int, error) {
+	n := binary.PutUvarint(buf, uint64(msg.Size()))
+	nn, err := msg.MarshalTo(buf[n:])
+	n += nn
 	if err != nil {
-		return err
+		return n, err
 	}
-
-	_, err = w.Write(buf[:n])
-	return err
-}
-
-func MarshalMessage(msg msg, buf []byte) (int, error) {
-	size := msg.Size()
-
-	n := binary.PutUvarint(buf, uint64(size))
-	n2, err := msg.MarshalTo(buf[n:])
-	if err != nil {
-		return 0, err
-	}
-	n += n2
 
 	return n, nil
 }
 
-func ReadMessage(r io.Reader, msg msg) error {
-	mr := msgio.NewVarintReader(r)
-	b, err := mr.ReadMsg()
-	if err != nil {
-		return err
+func Unmarshal(msg Message, data []byte) (int, error) {
+	vint, n := binary.Uvarint(data)
+	if n < 0 {
+		return 0, fmt.Errorf("serde: varint overflow")
 	}
 
-	err = UnmarshalMessage(msg, b)
-	mr.ReleaseMsg(b)
+	nn := n + int(vint)
+	err := msg.Unmarshal(data[n:nn])
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return nn, nil
 }
 
-func UnmarshalMessage(msg msg, b []byte) error {
-	err := msg.Unmarshal(b)
+func Write(w io.Writer, msg Message) (int, error) {
+	buf := Get(binary.MaxVarintLen64 + msg.Size())
+	defer Put(buf)
+
+	n, err := Marshal(msg, buf)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return w.Write(buf[:n])
+}
+
+func Read(r io.Reader, msg Message) (int, error) {
+	br, ok := r.(io.ByteReader)
+	if ok {
+		var n int
+		size, err := binary.ReadUvarint(&byteCounter{br, &n})
+		if err != nil {
+			return n, err
+		}
+
+		buf := Get(int(size))
+		nn, err := readWith(r, msg, buf)
+		n += nn
+		Put(buf)
+		return n, err
+	}
+
+	buf := Get(binary.MaxVarintLen64)
+	size, n, err := ReadUvarint(r, buf)
+	if err != nil {
+		return n, err
+	}
+
+	buf = Extend(buf[n:], int(size))
+	nn, err := readWith(r, msg, buf)
+	n += nn
+	Put(buf)
+	return n, err
+}
+
+func readWith(r io.Reader, msg Message, buf []byte) (int, error) {
+	n, err := io.ReadFull(r, buf)
+	if err != nil {
+		return n, err
+	}
+
+	return n, msg.Unmarshal(buf)
+}
+
+type ByteReader struct {
+	io.Reader
+
+	b [1]byte
+}
+
+func NewByteReader(r io.Reader) *ByteReader {
+	return &ByteReader{Reader: r}
+}
+
+func (b *ByteReader) ReadByte() (byte, error) {
+	_, err := io.ReadFull(b.Reader, b.b[:])
+	if err != nil {
+		return 0, err
+	}
+
+	return b.b[0], nil
+}
+
+type byteCounter struct {
+	br io.ByteReader
+	i  *int
+}
+
+func (bc *byteCounter) ReadByte() (byte, error) {
+	b, err := bc.br.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+
+	*bc.i++
+	return b, nil
 }
