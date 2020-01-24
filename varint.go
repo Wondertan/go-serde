@@ -11,7 +11,7 @@ func ReadUvarint(r io.Reader, buf []byte) (uint64, int, error) {
 		return 0, 0, fmt.Errorf("serde: small buffer")
 	}
 
-	nn, err := io.ReadFull(r, buf)
+	nn, err := r.Read(buf)
 	if err != nil {
 		return 0, nn, err
 	}

@@ -73,7 +73,7 @@ func Read(r io.Reader, msg Message) (int, error) {
 	}
 
 	buf = Extend(buf[n:], int(size))
-	nn, err := readWith(r, msg, buf)
+	nn, err := readWith(r, msg, buf[n:])
 	n += nn
 	Put(buf)
 	return n, err
