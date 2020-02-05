@@ -50,33 +50,17 @@ func Write(w io.Writer, msg Message) (int, error) {
 	return w.Write(buf[:n])
 }
 
-func Read(r io.Reader, msg Message) (int, error) {
-	br, ok := r.(io.ByteReader)
-	if ok {
-		var n int
-		size, err := binary.ReadUvarint(&byteCounter{br, &n})
-		if err != nil {
-			return n, err
-		}
-
-		buf := Get(int(size))
-		nn, err := readWith(r, msg, buf)
-		n += nn
-		Put(buf)
-		return n, err
-	}
-
-	buf := Get(binary.MaxVarintLen64)
-	size, n, err := ReadUvarint(r, buf)
+func Read(r io.Reader, msg Message) (n int, err error) {
+	size, err := binary.ReadUvarint(&byteCounter{NewByteReader(r), &n})
 	if err != nil {
-		return n, err
+		return
 	}
 
-	buf = Extend(buf[n:], int(size))
-	nn, err := readWith(r, msg, buf[n:])
+	buf := Get(int(size))
+	nn, err := readWith(r, msg, buf)
 	n += nn
 	Put(buf)
-	return n, err
+	return
 }
 
 func readWith(r io.Reader, msg Message, buf []byte) (int, error) {

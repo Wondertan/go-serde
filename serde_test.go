@@ -24,21 +24,6 @@ func TestMarshalUnmarshal(t *testing.T) {
 	assert.Equal(t, in, out)
 }
 
-func TestWriteReadReader(t *testing.T) {
-	in := &fakeMsg{data: []byte("testtesttesttest")}
-	rw := &simpleRW{data: make([]byte, 100)}
-
-	n, err := Write(rw, in)
-	require.Nil(t, err)
-	assert.NotEqual(t, n, in.Size())
-
-	out := &fakeMsg{}
-	nn, err := Read(rw, out)
-	require.Nil(t, err)
-	assert.Equal(t, n, nn)
-	assert.Equal(t, in, out)
-}
-
 func TestWriteReadByteReader(t *testing.T) {
 	in := &fakeMsg{data: []byte("test")}
 	rw := &simpleRW{data: make([]byte, 100)}
@@ -88,8 +73,7 @@ func (f *fakeMsg) Size() int {
 }
 
 func (f *fakeMsg) MarshalTo(buf []byte) (int, error) {
-	copy(buf, f.data)
-	return len(f.data), nil
+	return copy(buf, f.data), nil
 }
 
 func (f *fakeMsg) Unmarshal(data []byte) error {
